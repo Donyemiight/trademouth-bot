@@ -444,7 +444,8 @@ def main():
             HTTPServer(("0.0.0.0", int(port)), HealthHandler).serve_forever()
         threading.Thread(target=run_http, daemon=True).start()
         log.info(f"Health server on port {port}")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Wrap run_polling in asyncio.run() to fix "no current event loop" on Python 3.10+
+    asyncio.run(app.run_polling(allowed_updates=Update.ALL_TYPES))
 
 
 if __name__ == "__main__":

@@ -414,8 +414,9 @@ async def error_handler(update, ctx):
 
 def main():
     if not TELEGRAM_BOT_TOKEN or not OPENROUTER_API_KEY:
+        log.error(f"Missing env vars. TELEGRAM_BOT_TOKEN={'set' if TELEGRAM_BOT_TOKEN else 'MISSING'}, OPENROUTER_API_KEY={'set' if OPENROUTER_API_KEY else 'MISSING'}")
         raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or OPENROUTER_API_KEY")
-    log.info("TradeMouth v2 (cloud) starting...")
+    log.info("TradeMouth v2 (cloud) starting... env vars OK")
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))

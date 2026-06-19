@@ -26,7 +26,7 @@ from telegram import (
     ReplyKeyboardMarkup,
 )
 from telegram.ext import (
-    Updater, CommandHandler, MessageHandler, Filters, CallbackContext,
+    Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler,
 )
 
 import requests
@@ -576,7 +576,6 @@ def main():
     dp.add_handler(CommandHandler("journal", journal_cmd))
     dp.add_handler(CommandHandler("strategies", strategies_cmd))
     dp.add_handler(CommandHandler("balance", balance_cmd))
-    from telegram.ext import CallbackQueryHandler
     dp.add_handler(CallbackQueryHandler(on_button))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
     dp.add_error_handler(error_handler)

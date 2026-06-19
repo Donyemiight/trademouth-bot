@@ -278,10 +278,7 @@ def main_menu_kb():
     ])
 
 
-# ---------- Handlers (v13 style with @run_async wrappers) ----------
-from telegram.ext.dispatcher import run_async
-
-
+# ---------- Handlers (v13 style) ----------
 def start_cmd(update, context):
     update.message.reply_text(
         "🧠 **TradeMouth**\n\n"

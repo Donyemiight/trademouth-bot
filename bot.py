@@ -6,6 +6,16 @@ Socratic AI trading mentor for Bitget hackathon.
 v13.15 of python-telegram-bot is rock-solid for production bots.
 """
 
+# --- imghdr shim for Python 3.13+ compatibility ---
+# python-telegram-bot v13 still imports imghdr (removed in 3.13).
+# This stub returns None (we don't process images anyway).
+import sys
+import types
+if 'imghdr' not in sys.modules:
+    _imghdr = types.ModuleType('imghdr')
+    _imghdr.what = lambda file, h=None: None
+    sys.modules['imghdr'] = _imghdr
+
 import os
 import json
 import time

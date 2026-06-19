@@ -426,6 +426,23 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_error_handler(error_handler)
     log.info("Bot is up.")
+    # If PORT env var is set (Render web service), start a tiny HTTP server
+    # so Render's health check passes. Otherwise just run polling.
+    import os as _os
+    port = _os.environ.get("PORT")
+    if port:
+        import threading
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        class HealthHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'TradeMouth is up')
+            def log_message(self, *a, **k): pass
+        def run_http():
+            HTTPServer(("0.0.0.0", int(port)), HealthHandler).serve_forever()
+        threading.Thread(target=run_http, daemon=True).start()
+        log.info(f"Health server on port {port}")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

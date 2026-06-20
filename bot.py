@@ -1025,6 +1025,13 @@ def main():
         log.error("Missing env vars")
         raise RuntimeError("Missing required env vars")
     log.info("TradeMouth v3 (winning-ready) starting... env vars OK")
+    try:
+        r = requests.get(f"{TG_API}/getMe", timeout=10)
+        if r.status_code == 200:
+            me = r.json().get("result", {})
+            log.info(f"Bot @{me.get('username')} connected. Polling for messages...")
+    except Exception as e:
+        log.warning(f"getMe failed: {e}")
 
     if SEED_JOURNAL:
         seed_demo_journal()

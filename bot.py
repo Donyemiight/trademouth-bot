@@ -27,7 +27,7 @@ import requests
 # ---------- Config ----------
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen/qwen-2.5-72b-instruct")
+QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen/qwen-2.5-7b-instruct")
 
 BITGET_API_KEY = os.environ.get("BITGET_API_KEY", "")
 BITGET_SECRET = os.environ.get("BITGET_SECRET", "")
@@ -502,8 +502,21 @@ def handle_text(chat_id, user_id, text):
     try:
         reply = call_qwen(messages)
     except Exception as e:
-        log.exception("Qwen error")
-        tg_send(chat_id, f"LLM error: {e}")
+        log.exception(f"Qwen error: {e}")
+        # Fallback: send a basic data-driven response without LLM
+        if snapshot.get("ok"):
+            fng_text = f" | F&G: {fng}" if fng > 0 else ""
+            fallback = (
+                f"*Read on {snapshot['asset']}*\n\n"
+                f"- Price: ${snapshot['price']} ({snapshot['change_pct_24h']:+.2f}% 24h)\n"
+                f"- RSI 1h: {snapshot['rsi_1h']}{fng_text}\n"
+                f"- 24h range: ${snapshot['low_24h']} – ${snapshot['high_24h']}\n\n"
+                f"_LLM temporarily unavailable, showing raw data. Try again in a minute._\n\n"
+                f"Question: what's your thesis here?"
+            )
+            tg_send(chat_id, fallback, reply_markup=main_menu_kb())
+        else:
+            tg_send(chat_id, f"LLM error: {str(e)[:200]}\n\nTry `/help` for commands.")
         return
 
     rl = reply.lower()

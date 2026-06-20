@@ -118,24 +118,10 @@ def user_state(j, user_id):
         "style_notes": [],
         "first_seen": datetime.utcnow().isoformat() + "Z",
     })
-    return j["users"][str(user_id)]
-
-
-def seed_demo_journal():
-    """Seed journal with 3 realistic demo trades for first-time users."""
-    if JOURNAL_PATH.exists():
-        return  # Don't overwrite real data
-    j = {"users": {}}
-    # Seed a "demo user" so /journal shows something on a fresh chat
-    j["users"]["demo"] = {
-        "stated_portfolio_usdt": 5000,
-        "max_position_pct": 2.0,
-        "first_seen": "2026-06-08T14:00:00Z",
-        "style_notes": [
-            "Comfortable with 1-2% position sizes",
-            "Best trades have clear thesis; worst trades were FOMO",
-        ],
-        "trades": [
+    # Seed demo trades for first-time users (so /journal looks alive)
+    user_data = j["users"][str(user_id)]
+    if not user_data.get("trades") and SEED_JOURNAL:
+        user_data["trades"] = [
             {
                 "ts": "2026-06-10T14:23:00Z",
                 "asset": "SOL", "direction": "buy",
@@ -163,10 +149,17 @@ def seed_demo_journal():
                 "user_stated_thesis": "felt like missing out",
                 "outcome": "-3.4%",
             },
-        ],
-    }
-    save_journal(j)
-    log.info("Demo journal seeded.")
+        ]
+        user_data["style_notes"] = [
+            "Best trades have clear thesis; worst trades were FOMO after F&G > 70",
+        ]
+        save_journal(j)
+    return user_data
+
+
+def seed_demo_journal():
+    """No-op: now seeded per-user on first call to user_state()."""
+    pass
 
 
 # ---------- Qwen ----------

@@ -166,37 +166,78 @@ def get_market_snapshot(asset):
     asset_u = asset.upper().strip()
     sym = f"{asset_u}USDT"
     out = {"asset": asset_u, "ok": False}
+
+    # Try multiple endpoints (Binance often blocks cloud IPs)
+    endpoints = [
+        ("https://api.binance.com/api/v3/klines", "binance", "binance"),
+        ("https://api1.binance.com/api/v3/klines", "binance1", "binance"),
+        ("https://data-api.binance.vision/api/v3/klines", "data-api", "binance"),
+    ]
+
+    for api_url, name, source_type in endpoints:
+        try:
+            r = requests.get(api_url, params={"symbol": sym, "interval": "1h", "limit": 100}, timeout=8)
+            if r.status_code != 200:
+                log.info(f"{name} returned {r.status_code} for {sym}")
+                continue
+            k = r.json()
+            if not k or len(k) < 50:
+                continue
+            closes = [float(c[4]) for c in k]
+            highs = [float(c[2]) for c in k]
+            lows = [float(c[3]) for c in k]
+            vols = [float(c[5]) for c in k]
+            price = closes[-1]
+            change_pct_24h = (closes[-1] / closes[-24] - 1) * 100 if len(closes) >= 24 else 0
+            gains, losses = [], []
+            for i in range(-14, 0):
+                d = closes[i] - closes[i - 1]
+                (gains if d > 0 else losses).append(abs(d))
+            avg_g = sum(gains) / 14 if gains else 0
+            avg_l = sum(losses) / 14 if losses else 0
+            rs = avg_g / avg_l if avg_l else 0
+            rsi = 100 - (100 / (1 + rs)) if rs else 50
+            ema = sum(closes[-20:]) / 20
+            avg_vol = sum(vols[:-1]) / (len(vols) - 1) if len(vols) > 1 else vols[-1]
+            out.update({
+                "ok": True, "price": price, "change_pct_24h": round(change_pct_24h, 2),
+                "high_24h": max(highs[-24:]) if len(highs) >= 24 else max(highs),
+                "low_24h": min(lows[-24:]) if len(lows) >= 24 else min(lows),
+                "rsi_1h": round(rsi, 1), "ema_20_1h": round(ema, 2),
+                "vol_ratio_last_vs_avg": round(vols[-1] / avg_vol, 2) if avg_vol else 1,
+                "source": name,
+            })
+            return out
+        except Exception as e:
+            log.info(f"{name} failed for {sym}: {e}")
+            continue
+
+    # Final fallback: CoinGecko (basic price only, no indicators)
     try:
-        r = requests.get("https://api.binance.com/api/v3/klines",
-            params={"symbol": sym, "interval": "1h", "limit": 100}, timeout=10)
-        if r.status_code != 200:
-            return {**out, "err": f"{sym} not found"}
-        k = r.json()
-        closes = [float(c[4]) for c in k]
-        highs = [float(c[2]) for c in k]
-        lows = [float(c[3]) for c in k]
-        vols = [float(c[5]) for c in k]
-        price = closes[-1]
-        change_pct_24h = (closes[-1] / closes[-24] - 1) * 100 if len(closes) >= 24 else 0
-        gains, losses = [], []
-        for i in range(-14, 0):
-            d = closes[i] - closes[i - 1]
-            (gains if d > 0 else losses).append(abs(d))
-        avg_g = sum(gains) / 14 if gains else 0
-        avg_l = sum(losses) / 14 if losses else 0
-        rs = avg_g / avg_l if avg_l else 0
-        rsi = 100 - (100 / (1 + rs)) if rs else 50
-        ema = sum(closes[-20:]) / 20
-        avg_vol = sum(vols[:-1]) / (len(vols) - 1) if len(vols) > 1 else vols[-1]
-        out.update({
-            "ok": True, "price": price, "change_pct_24h": round(change_pct_24h, 2),
-            "high_24h": max(highs[-24:]) if len(highs) >= 24 else max(highs),
-            "low_24h": min(lows[-24:]) if len(lows) >= 24 else min(lows),
-            "rsi_1h": round(rsi, 1), "ema_20_1h": round(ema, 2),
-            "vol_ratio_last_vs_avg": round(vols[-1] / avg_vol, 2) if avg_vol else 1,
-        })
+        r = requests.get("https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": asset_u.lower(), "vs_currencies": "usd",
+                    "include_24hr_change": "true", "include_24hr_vol": "true",
+                    "include_high_low": "true"}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data:
+                coin = data.get(asset_u.lower(), {})
+                if coin:
+                    price = coin.get("usd", 0)
+                    change_24h = coin.get("usd_24h_change", 0)
+                    out.update({
+                        "ok": True, "price": price,
+                        "change_pct_24h": round(change_24h, 2),
+                        "high_24h": 0, "low_24h": 0,
+                        "rsi_1h": -1, "ema_20_1h": 0,
+                        "vol_ratio_last_vs_avg": 0,
+                        "source": "coingecko",
+                    })
+                    return out
     except Exception as e:
-        out["err"] = str(e)
+        log.warning(f"coingecko fallback failed: {e}")
+
+    out["err"] = "All market data sources unreachable from this server"
     return out
 
 

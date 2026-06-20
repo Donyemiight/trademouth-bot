@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 """
-TradeMouth v2 — production deploy version (v13.15 compatible)
-Socratic AI trading mentor for Bitget hackathon.
+TradeMouth — Zero-dependency Telegram bot (just requests + stdlib).
 
-v13.15 of python-telegram-bot is rock-solid for production bots.
+No python-telegram-bot. No version conflicts. No Python 3.14 issues.
+Just direct calls to the Telegram Bot API.
+
+This is the most boring, reliable bot you can write.
 """
-
-# --- imghdr shim for Python 3.13+ compatibility ---
-# python-telegram-bot v13 still imports imghdr (removed in 3.13).
-# This stub returns None (we don't process images anyway).
-import sys
-import types
-if 'imghdr' not in sys.modules:
-    _imghdr = types.ModuleType('imghdr')
-    _imghdr.what = lambda file, h=None: None
-    sys.modules['imghdr'] = _imghdr
 
 import os
 import json
@@ -29,15 +21,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-
-# python-telegram-bot v13.15 API
-from telegram import (
-    Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-)
-from telegram.ext import (
-    Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler,
-)
 
 import requests
 
@@ -65,11 +48,49 @@ ASSET_ALIASES = {
     "BINANCE": "BNB", "RIPPLE": "XRP", "CARDANO": "ADA",
 }
 
+TG_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     level=logging.INFO,
 )
 log = logging.getLogger("trademouth")
+
+
+# ---------- Telegram API helpers ----------
+def tg_send(chat_id, text, reply_markup=None, parse_mode="Markdown"):
+    """Send a message via the Telegram Bot API."""
+    payload = {
+        "chat_id": chat_id,
+        "text": text[:4000],  # Telegram limit
+        "parse_mode": parse_mode,
+    }
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    try:
+        r = requests.post(f"{TG_API}/sendMessage", json=payload, timeout=30)
+        if r.status_code != 200:
+            log.warning(f"Telegram send failed: {r.status_code} {r.text[:200]}")
+            # Retry without parse_mode if Markdown broke
+            if parse_mode == "Markdown":
+                payload.pop("parse_mode", None)
+                r = requests.post(f"{TG_API}/sendMessage", json=payload, timeout=30)
+        return r.json() if r.status_code == 200 else None
+    except Exception as e:
+        log.warning(f"tg_send error: {e}")
+        return None
+
+
+def tg_answer_callback(callback_query_id, text=None, show_alert=False):
+    """Answer a callback query (button press)."""
+    try:
+        requests.post(f"{TG_API}/answerCallbackQuery", json={
+            "callback_query_id": callback_query_id,
+            "text": text,
+            "show_alert": show_alert,
+        }, timeout=10)
+    except Exception:
+        pass
 
 
 # ---------- Journal ----------
@@ -95,22 +116,19 @@ def user_state(j, user_id):
 # ---------- Qwen ----------
 QWEN_SYSTEM_PROMPT = """You are TradeMouth, a Socratic trading mentor that lives in a user's Telegram chat. You help them THINK through trades, you don't trade for them, and you never promise profits.
 
-Voice: calm, sharp, slightly dry. Senior trader who's seen it all. Short sentences. Never saccharine. No "great question", no "I'd be happy to help".
+Voice: calm, sharp, slightly dry. Senior trader who's seen it all. Short sentences. Never saccharine.
 
 Hard rules (non-negotiable):
 1. When user states intent, FIRST move is usually a clarifying Socratic question, not a recommendation.
-2. Always show 2-4 reasoning bullets. One line each. Real data preferred over platitudes.
+2. Always show 2-4 reasoning bullets. One line each.
 3. NEVER use: "guaranteed", "risk-free", "easy money", "you'll make", "to the moon", "100x", "moonshot".
-4. NEVER recommend leverage. We are spot only. If asked, redirect: "I'm a spot-only mentor. Let's talk position size instead."
+4. NEVER recommend leverage. Spot only. If asked, redirect: "I'm a spot-only mentor. Let's talk position size instead."
 5. Default position size cap is 2% of stated portfolio.
 6. End every reply with ONE Socratic question.
-7. Keep total response under 200 words. This is a chat, not a research report.
+7. Keep total response under 200 words.
 8. ONE emoji max per message.
-9. Always reference the user's past trades if available, especially their losses.
-10. "wait" is a valid answer. If the setup isn't there, say so plainly.
 
 Output format (markdown):
-[trade_consideration or analyze_asset]
 **Read on [ASSET]:**
 - [factor 1]
 - [factor 2]
@@ -212,59 +230,41 @@ def bitget_request(method, path, params=None, body=None):
         r = requests.get(url, headers=headers, timeout=15)
     else:
         r = requests.post(url, headers=headers, data=body_str, timeout=15)
-    try:
-        return r.json()
-    except Exception:
-        return {"err": f"non-json response: {r.text[:200]}"}
+    try: return r.json()
+    except Exception: return {"err": r.text[:200]}
 
 
 def place_spot_order(symbol, side, quote_usdt):
     body = {
-        "symbol": symbol,
-        "side": side.lower(),
-        "orderType": "market",
-        "quoteOrderQty": f"{quote_usdt:.2f}",
-        "force": "gtc",
+        "symbol": symbol, "side": side.lower(), "orderType": "market",
+        "quoteOrderQty": f"{quote_usdt:.2f}", "force": "gtc",
     }
     return bitget_request("POST", "/api/v2/spot/trade/place-order", body=body)
 
 
-# ---------- Intent classification ----------
+# ---------- Intent ----------
 def classify_intent(text):
     t = text.lower().strip()
-    if not t:
-        return "chitchat"
-    if t.startswith("/start") or re.match(r"^(hi|hello|hey|yo)[\s!.]*$", t):
-        return "chitchat"
-    if t.startswith("/help"):
-        return "help"
-    if t.startswith("/journal") or "my trades" in t or "win rate" in t:
-        return "journal_review"
-    if t.startswith("/strategies"):
-        return "strategies"
-    if t.startswith("/balance"):
-        return "balance"
-    if t in ("yes", "do it", "execute", "y", "go", "send it", "ship it", "lock it in"):
-        return "confirm_execute"
-    if t in ("no", "cancel", "wait", "skip", "n", "not now", "nope", "nah"):
-        return "cancel_execute"
-    if any(w in t for w in ("buy ", "sell ", "long ", "short ", "execute ", "place order")):
-        return "execute_intent"
-    if any(w in t for w in ("thinking about", "considering", "looking at", "should i", "what do you think", "i want to")):
-        return "trade_consideration"
-    if any(w in t for w in ("analyze", "what's happening", "read on", "your view", "thoughts on", "how's ", "what about")):
-        return "analyze_asset"
+    if not t: return "chitchat"
+    if t.startswith("/start") or re.match(r"^(hi|hello|hey|yo)[\s!.]*$", t): return "chitchat"
+    if t.startswith("/help"): return "help"
+    if t.startswith("/journal") or "my trades" in t: return "journal_review"
+    if t.startswith("/strategies"): return "strategies"
+    if t.startswith("/balance"): return "balance"
+    if t in ("yes","do it","execute","y","go","send it","ship it"): return "confirm_execute"
+    if t in ("no","cancel","wait","skip","n","not now","nope","nah"): return "cancel_execute"
+    if any(w in t for w in ("buy ","sell ","long ","short ","execute ","place order")): return "execute_intent"
+    if any(w in t for w in ("thinking about","considering","looking at","should i","what do you think")): return "trade_consideration"
+    if any(w in t for w in ("analyze","what's happening","read on","your view","thoughts on","how's ","what about")): return "analyze_asset"
     return "analyze_asset"
 
 
 def extract_asset(text):
     upper = text.upper()
     for t in SUPPORTED_ASSETS:
-        if re.search(rf"\b{t}\b", upper):
-            return t
+        if re.search(rf"\b{t}\b", upper): return t
     for name, ticker in ASSET_ALIASES.items():
-        if name in upper:
-            return ticker
+        if name in upper: return ticker
     return None
 
 
@@ -278,55 +278,61 @@ def parse_max_size(text):
     return float(m.group(1)) if m else None
 
 
-# ---------- Inline keyboards ----------
+# ---------- Keyboards ----------
 def main_menu_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Analyze", callback_data="cmd_analyze"),
-         InlineKeyboardButton("📓 Journal", callback_data="cmd_journal")],
-        [InlineKeyboardButton("🎯 Strategies", callback_data="cmd_strategies"),
-         InlineKeyboardButton("💰 Balance", callback_data="cmd_balance")],
-    ])
+    return {
+        "inline_keyboard": [
+            [{"text": "📊 Analyze", "callback_data": "hint_analyze"},
+             {"text": "📓 Journal", "callback_data": "hint_journal"}],
+            [{"text": "🎯 Strategies", "callback_data": "hint_strategies"},
+             {"text": "💰 Balance", "callback_data": "hint_balance"}],
+        ]
+    }
 
 
-# ---------- Handlers (v13 style) ----------
-def start_cmd(update, context):
-    update.message.reply_text(
-        "🧠 **TradeMouth**\n\n"
+def confirm_kb():
+    return {
+        "inline_keyboard": [[
+            {"text": "✓ Type 'yes' to confirm", "callback_data": "noop_yes"},
+            {"text": "✗ Type 'no' to cancel", "callback_data": "noop_no"},
+        ]]
+    }
+
+
+# ---------- Message handlers ----------
+def handle_start(chat_id):
+    tg_send(chat_id,
+        "🧠 *TradeMouth*\n\n"
         "I'm a Socratic trading mentor. I won't give you signals — I'll help you think.\n\n"
         "Try:\n"
-        "• *analyze SOL* — get my read on any coin\n"
-        "• *I'm thinking about buying ETH at 3500* — let's workshop it\n"
-        "• *my journal* — review your past trades\n"
-        "• *set my portfolio to 5000* — I'll size positions off this\n\n"
+        "• `analyze SOL` — get my read on any coin\n"
+        "• `I'm thinking about buying ETH at 3500` — let's workshop it\n"
+        "• `my journal` — review your past trades\n"
+        "• `/strategies` — 10 starter strategies\n"
+        "• `set my portfolio to 5000` — I'll size positions off this\n\n"
         "Built for the Bitget AI Hackathon. No promises, no leverage, no custody of your funds.",
-        reply_markup=main_menu_kb(),
-        parse_mode="Markdown",
-    )
+        reply_markup=main_menu_kb())
 
 
-def help_cmd(update, context):
-    update.message.reply_text(
-        "**TradeMouth commands**\n\n"
+def handle_help(chat_id):
+    tg_send(chat_id,
+        "*TradeMouth commands*\n\n"
         "/start — intro\n/help — this\n/journal — your trade history\n"
         "/strategies — 10 starter strategies\n/balance — your Bitget spot balance\n\n"
         "Or just type:\n"
-        "• *analyze BTC*\n• *thinking about buying SOL*\n"
-        "• *set my portfolio to 5000*\n• *yes* / *no* — confirm or cancel a pending trade",
-        parse_mode="Markdown",
-    )
+        "• `analyze BTC`\n• `thinking about buying SOL`\n"
+        "• `set my portfolio to 5000`\n• `yes` / `no` — confirm or cancel a pending trade")
 
 
-def journal_cmd(update, context):
+def handle_journal(chat_id, user_id):
     j = load_journal()
-    u = user_state(j, update.effective_user.id)
+    u = user_state(j, user_id)
     trades = u.get("trades", [])
     if not trades:
-        update.message.reply_text(
-            "No trades yet. Type `thinking about buying X` to start a Socratic session.",
-            reply_markup=main_menu_kb(),
-        )
+        tg_send(chat_id, "No trades yet. Type `thinking about buying X` to start a Socratic session.",
+                reply_markup=main_menu_kb())
         return
-    lines = [f"**Your last {min(len(trades), 10)} trades:**\n"]
+    lines = [f"*Your last {min(len(trades), 10)} trades:*\n"]
     for t in trades[-10:]:
         lines.append(
             f"- {t['ts'][:10]} {t['asset']} {t['direction']} {t.get('size_usdt', 0):.0f}U "
@@ -335,13 +341,13 @@ def journal_cmd(update, context):
     closed = [t for t in trades if t.get("outcome") and t["outcome"] != "open"]
     wins = sum(1 for t in closed if t["outcome"].startswith("+"))
     win_rate = (wins / len(closed) * 100) if closed else 0
-    lines.append(f"\n**Total:** {len(trades)} | Closed: {len(closed)} | Win rate: {win_rate:.0f}%")
-    update.message.reply_text("\n".join(lines), reply_markup=main_menu_kb(), parse_mode="Markdown")
+    lines.append(f"\n*Total:* {len(trades)} | Closed: {len(closed)} | Win rate: {win_rate:.0f}%")
+    tg_send(chat_id, "\n".join(lines), reply_markup=main_menu_kb())
 
 
-def strategies_cmd(update, context):
-    update.message.reply_text(
-        "**10 starter strategies:**\n\n"
+def handle_strategies(chat_id):
+    tg_send(chat_id,
+        "*10 starter strategies*\n\n"
         "1. *RSI mean reversion* — buy RSI<30 4H\n"
         "2. *MACD continuation* — buy 1D MACD cross above 200 EMA\n"
         "3. *Fear & Greed contrarian* — buy F&G<25, sell F&G>60\n"
@@ -352,33 +358,30 @@ def strategies_cmd(update, context):
         "8. *Funding rate fade*\n"
         "9. *Earnings/news drift*\n"
         "10. *Personal rule engine* — your rules, I enforce them",
-        reply_markup=main_menu_kb(),
-        parse_mode="Markdown",
-    )
+        reply_markup=main_menu_kb())
 
 
-def balance_cmd(update, context):
+def handle_balance(chat_id):
     if not BITGET_API_KEY:
-        update.message.reply_text("Bitget API not configured.", reply_markup=main_menu_kb())
+        tg_send(chat_id, "Bitget API not configured.", reply_markup=main_menu_kb())
         return
     res = bitget_request("GET", "/api/v2/spot/account/assets")
     if "err" in res:
-        update.message.reply_text(f"Error: {res['err']}")
+        tg_send(chat_id, f"Error: {res['err']}")
         return
-    lines = ["**Bitget spot balance:**\n"]
+    lines = ["*Bitget spot balance:*\n"]
     nonzero = 0
     for a in res.get("data", []):
         try:
             avail = float(a.get("available", "0") or 0)
             frozen = float(a.get("frozen", "0") or 0)
-        except Exception:
-            continue
+        except: continue
         if avail > 0 or frozen > 0:
-            lines.append(f"- **{a.get('coin')}**: {avail} (frozen: {frozen})")
+            lines.append(f"- *{a.get('coin')}*: {avail} (frozen: {frozen})")
             nonzero += 1
     if nonzero == 0:
         lines.append("All zero.")
-    update.message.reply_text("\n".join(lines), reply_markup=main_menu_kb(), parse_mode="Markdown")
+    tg_send(chat_id, "\n".join(lines), reply_markup=main_menu_kb())
 
 
 def build_user_context(user_text, snapshot, fng, user):
@@ -387,8 +390,7 @@ def build_user_context(user_text, snapshot, fng, user):
     similar = [t for t in trades if asset and t.get("asset", "").upper() == asset.upper()][-3:]
     similar_text = "\n".join(
         f"- {t['ts'][:10]} {t['asset']} {t['direction']} -> {t.get('outcome', 'open')} ({t.get('user_stated_thesis', 'no thesis')})"
-        for t in similar
-    ) or "No prior trades on this asset."
+        for t in similar) or "No prior trades on this asset."
     market_text = (
         f"Asset: {snapshot.get('asset', '?')}\n"
         f"Price: {snapshot.get('price', 'n/a')}\n"
@@ -414,9 +416,7 @@ def build_user_context(user_text, snapshot, fng, user):
     }]
 
 
-def handle_text(update, context):
-    text = update.message.text or ""
-    user_id = update.effective_user.id
+def handle_text(chat_id, user_id, text):
     j = load_journal()
     u = user_state(j, user_id)
     intent = classify_intent(text)
@@ -425,58 +425,47 @@ def handle_text(update, context):
     if p:
         u["stated_portfolio_usdt"] = p
         save_journal(j)
-        update.message.reply_text(
-            f"Got it. Portfolio: **{p:.0f} USDT**. Max per trade: {u['max_position_pct']}%.",
-            reply_markup=main_menu_kb(), parse_mode="Markdown",
-        )
+        tg_send(chat_id,
+            f"Got it. Portfolio: *{p:.0f} USDT*. Max per trade: {u['max_position_pct']}%.",
+            reply_markup=main_menu_kb())
         return
     p = parse_max_size(text)
     if p:
         u["max_position_pct"] = min(p, 10.0)
         save_journal(j)
-        update.message.reply_text(f"Max position set to **{p}%** (capped at 10%).", parse_mode="Markdown")
+        tg_send(chat_id, f"Max position set to *{p}%* (capped at 10%).")
         return
 
-    if intent == "help":
-        help_cmd(update, context); return
-    if intent == "journal_review":
-        journal_cmd(update, context); return
-    if intent == "strategies":
-        strategies_cmd(update, context); return
-    if intent == "balance":
-        balance_cmd(update, context); return
+    if intent == "help": handle_help(chat_id); return
+    if intent == "journal_review": handle_journal(chat_id, user_id); return
+    if intent == "strategies": handle_strategies(chat_id); return
+    if intent == "balance": handle_balance(chat_id); return
 
     pending = u.get("pending_trade")
     pending_at = u.get("pending_at")
     if pending and pending_at:
-        try:
-            age = (datetime.utcnow() - datetime.fromisoformat(pending_at.rstrip("Z"))).total_seconds()
-        except Exception:
-            age = 0
+        try: age = (datetime.utcnow() - datetime.fromisoformat(pending_at.rstrip("Z"))).total_seconds()
+        except: age = 0
         if age > PENDING_TTL_SECONDS:
             u["pending_trade"] = None; u["pending_at"] = None; pending = None
             save_journal(j)
 
     if intent == "confirm_execute" and pending:
         if not BITGET_API_KEY:
-            update.message.reply_text("Bitget API not configured.")
+            tg_send(chat_id, "Bitget API not configured.")
             return
         snap = get_market_snapshot(pending["asset"])
         if not snap.get("ok"):
-            update.message.reply_text(f"Couldn't get live price: {snap.get('err')}. Cancelled.")
+            tg_send(chat_id, f"Couldn't get live price: {snap.get('err')}. Cancelled.")
             u["pending_trade"] = None; u["pending_at"] = None; save_journal(j)
             return
         size_usdt = pending.get("size_usdt", 0)
         if size_usdt <= 0:
-            update.message.reply_text("Trade size is zero. Set your portfolio first.")
+            tg_send(chat_id, "Trade size is zero. Set your portfolio first.")
             return
-        result = place_spot_order(
-            symbol=f"{pending['asset']}USDT",
-            side=pending["direction"],
-            quote_usdt=size_usdt,
-        )
+        result = place_spot_order(f"{pending['asset']}USDT", pending["direction"], size_usdt)
         if "err" in result:
-            update.message.reply_text(f"Bitget rejected: {result['err']}")
+            tg_send(chat_id, f"Bitget rejected: {result['err']}")
             return
         trade = dict(pending)
         trade.update({
@@ -489,20 +478,19 @@ def handle_text(update, context):
         u["pending_trade"] = None; u["pending_at"] = None
         save_journal(j)
         oid = (result.get("data") or {}).get("orderId") or "n/a"
-        update.message.reply_text(
-            f"✅ **Executed.** Order ID: `{oid}`\n"
+        tg_send(chat_id,
+            f"✅ *Executed.* Order ID: `{oid}`\n"
             f"Entry: {snap['price']} | Size: {size_usdt:.2f} USDT\n"
             f"View: /journal",
-            reply_markup=main_menu_kb(), parse_mode="Markdown",
-        )
+            reply_markup=main_menu_kb())
         return
 
     if intent == "cancel_execute":
         if pending:
             u["pending_trade"] = None; u["pending_at"] = None; save_journal(j)
-            update.message.reply_text("Cancelled.", reply_markup=main_menu_kb())
+            tg_send(chat_id, "Cancelled.", reply_markup=main_menu_kb())
         else:
-            update.message.reply_text("Nothing pending.", reply_markup=main_menu_kb())
+            tg_send(chat_id, "Nothing pending.", reply_markup=main_menu_kb())
         return
 
     asset = extract_asset(text) or "BTC"
@@ -513,7 +501,7 @@ def handle_text(update, context):
         reply = call_qwen(messages)
     except Exception as e:
         log.exception("Qwen error")
-        update.message.reply_text(f"LLM error: {e}")
+        tg_send(chat_id, f"LLM error: {e}")
         return
 
     rl = reply.lower()
@@ -531,37 +519,108 @@ def handle_text(update, context):
             u["pending_at"] = datetime.utcnow().isoformat() + "Z"
             save_journal(j)
             reply += f"\n\n_I sketched a trade. Reply *yes* to send, *no* to cancel. (5 min)_"
-        except Exception:
-            pass
+            tg_send(chat_id, reply, reply_markup=confirm_kb())
+            return
+        except Exception as e:
+            log.warning(f"Could not create pending trade: {e}")
 
-    update.message.reply_text(reply, reply_markup=main_menu_kb(), parse_mode="Markdown")
-
-
-def on_button(update, context):
-    query = update.callback_query
-    query.answer()
-    if query.data == "cmd_analyze":
-        query.message.reply_text("Type: `analyze SOL` (or any coin) for my read.")
-    elif query.data == "cmd_journal":
-        query.message.reply_text("Type: /journal")
-    elif query.data == "cmd_strategies":
-        query.message.reply_text("Type: /strategies")
-    elif query.data == "cmd_balance":
-        query.message.reply_text("Type: /balance")
-    elif query.data in ("noop", "noop_cancel"):
-        query.answer(text="Type 'yes' or 'no' in chat — buttons don't execute trades.", show_alert=False)
+    tg_send(chat_id, reply, reply_markup=main_menu_kb())
 
 
-def error_handler(update, context):
-    log.warning(f"Update {update} caused error {context.error}")
+# ---------- Update dispatcher ----------
+def handle_update(update):
+    """Process a single Telegram update."""
+    try:
+        if "message" in update:
+            msg = update["message"]
+            chat_id = msg["chat"]["id"]
+            user_id = msg["from"]["id"]
+            text = msg.get("text", "").strip()
+
+            if text == "/start":
+                handle_start(chat_id); return
+            if text == "/help":
+                handle_help(chat_id); return
+            if text == "/journal":
+                handle_journal(chat_id, user_id); return
+            if text == "/strategies":
+                handle_strategies(chat_id); return
+            if text == "/balance":
+                handle_balance(chat_id); return
+            if text:
+                handle_text(chat_id, user_id, text); return
+
+        if "callback_query" in update:
+            cq = update["callback_query"]
+            data = cq.get("data", "")
+            chat_id = cq["message"]["chat"]["id"]
+            if data == "hint_analyze":
+                tg_answer_callback(cq["id"])
+                tg_send(chat_id, "Type: `analyze SOL` (or any coin) for my read.")
+            elif data == "hint_journal":
+                tg_answer_callback(cq["id"])
+                tg_send(chat_id, "Type: /journal")
+            elif data == "hint_strategies":
+                tg_answer_callback(cq["id"])
+                tg_send(chat_id, "Type: /strategies")
+            elif data == "hint_balance":
+                tg_answer_callback(cq["id"])
+                tg_send(chat_id, "Type: /balance")
+            elif data == "noop_yes":
+                tg_answer_callback(cq["id"], text="Type 'yes' in chat to confirm — buttons don't execute trades.", show_alert=False)
+            elif data == "noop_no":
+                tg_answer_callback(cq["id"], text="Type 'no' in chat to cancel.", show_alert=False)
+            else:
+                tg_answer_callback(cq["id"])
+    except Exception as e:
+        log.exception(f"handle_update error: {e}")
 
 
-# ---------- Main ----------
+def get_updates_once():
+    """Long-poll for new Telegram updates. Returns list of updates."""
+    try:
+        # Get current offset
+        offset_file = Path("/tmp/tg_offset.txt")
+        offset = 0
+        if offset_file.exists():
+            try: offset = int(offset_file.read_text().strip())
+            except: pass
+
+        params = {"timeout": 25, "allowed_updates": ["message", "callback_query"]}
+        if offset: params["offset"] = offset
+        r = requests.get(f"{TG_API}/getUpdates", params=params, timeout=35)
+        if r.status_code != 200:
+            log.warning(f"getUpdates failed: {r.status_code} {r.text[:200]}")
+            return []
+        data = r.json()
+        if not data.get("ok"):
+            return []
+        results = data.get("result", [])
+        if results:
+            # Save next offset
+            new_offset = max(u["update_id"] for u in results) + 1
+            offset_file.write_text(str(new_offset))
+        return results
+    except requests.exceptions.Timeout:
+        return []
+    except Exception as e:
+        log.warning(f"getUpdates error: {e}")
+        return []
+
+
+def run_bot():
+    log.info("TradeMouth (zero-deps) starting long polling...")
+    while True:
+        updates = get_updates_once()
+        for u in updates:
+            handle_update(u)
+
+
 def main():
     if not TELEGRAM_BOT_TOKEN or not OPENROUTER_API_KEY:
         log.error(f"Missing env vars")
         raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or OPENROUTER_API_KEY")
-    log.info("TradeMouth v2 (cloud, v13) starting... env vars OK")
+    log.info("TradeMouth v3 (zero-deps) starting... env vars OK")
 
     # HTTP health server for Render
     port = os.environ.get("PORT")
@@ -578,21 +637,7 @@ def main():
         threading.Thread(target=run_http, daemon=True).start()
         log.info(f"Health server on port {port}")
 
-    updater = Updater(token=TELEGRAM_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start_cmd))
-    dp.add_handler(CommandHandler("help", help_cmd))
-    dp.add_handler(CommandHandler("journal", journal_cmd))
-    dp.add_handler(CommandHandler("strategies", strategies_cmd))
-    dp.add_handler(CommandHandler("balance", balance_cmd))
-    dp.add_handler(CallbackQueryHandler(on_button))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
-    dp.add_error_handler(error_handler)
-
-    log.info("Bot is up. Starting polling...")
-    updater.start_polling()
-    updater.idle()
+    run_bot()
 
 
 if __name__ == "__main__":

@@ -155,7 +155,9 @@ def call_qwen(messages, temperature=0.4):
         "temperature": temperature, "max_tokens": 700,
     }
     r = requests.post(url, headers=headers, json=payload, timeout=60)
-    r.raise_for_status()
+    if r.status_code != 200:
+        log.error(f"Qwen error {r.status_code}: {r.text[:500]}")
+        raise RuntimeError(f"Qwen API error {r.status_code}: {r.text[:200]}")
     return r.json()["choices"][0]["message"]["content"]
 
 

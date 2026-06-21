@@ -1013,10 +1013,26 @@ def get_updates():
 
 def run_bot():
     log.info("TradeMouth starting long polling...")
+    error_count = 0
     while True:
-        updates = get_updates()
-        for u in updates:
-            handle_update(u)
+        try:
+            updates = get_updates()
+            for u in updates:
+                try:
+                    handle_update(u)
+                    error_count = 0
+                except Exception as e:
+                    log.exception(f"handle_update error: {e}")
+                    error_count += 1
+        except Exception as e:
+            log.exception(f"get_updates loop error: {e}")
+            error_count += 1
+            if error_count > 10:
+                log.error("Too many errors, restarting polling in 30s")
+                time.sleep(30)
+                error_count = 0
+            else:
+                time.sleep(2)
 
 
 # ---------- Main ----------

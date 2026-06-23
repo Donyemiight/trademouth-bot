@@ -776,6 +776,51 @@ def handle_text(chat_id, user_id, text):
     u = user_state(j, user_id)
     intent = classify_intent(text)
 
+    # FAST-PATH: /buy command - immediate trade, bypasses LLM
+    if text.startswith("/buy"):
+        if not BITGET_API_KEY:
+            tg_send(chat_id, "Bitget API not configured.")
+            return
+        # Parse: /buy SOL 1  or  /buy SOL $1  or  /buy SOL 1.5
+        m = re.search(r"/buy\s+(\w+)\s+[\$]?(\d+(?:\.\d+)?)", text, re.IGNORECASE)
+        if not m:
+            tg_send(chat_id, "Usage: `/buy <ASSET> <amount USDT>`\nExample: `/buy SOL 1`", parse_mode=None)
+            return
+        asset = m.group(1).upper()
+        amount = float(m.group(2))
+        if amount < 1:
+            tg_send(chat_id, f"Bitget minimum is $1 USDT. Using $1 instead of ${amount}.")
+            amount = 1.0
+        tg_send(chat_id, f"Placing market buy: *{amount} USDT* of *{asset}*...")
+        snap = get_market_snapshot(asset)
+        if not snap.get("ok"):
+            tg_send(chat_id, f"Couldn't get price for {asset}: {snap.get('err')}. Order NOT placed.")
+            return
+        result = place_spot_order(f"{asset}USDT", "buy", amount)
+        if "err" in result:
+            tg_send(chat_id, f"Bitget rejected: {str(result['err'])[:200]}")
+            return
+        oid = (result.get("data") or {}).get("orderId") or "n/a"
+        # Log to journal
+        trade = {
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "asset": asset, "direction": "buy",
+            "size_usdt": amount, "entry_price": snap["price"],
+            "order_result": result, "outcome": "open",
+            "user_stated_thesis": "manual /buy command",
+        }
+        u["trades"].append(trade)
+        save_journal(j)
+        tg_send(chat_id,
+            f"✅ *Executed.* Order ID: `{oid}`\n\n"
+            f"• Asset: {asset} buy\n"
+            f"• Size: {amount} USDT\n"
+            f"• Entry: {snap['price']}\n\n"
+            f"_View on Bitget:_ https://www.bitget.com/spot/{asset}USDT\n\n"
+            f"View all trades: /journal",
+            reply_markup=main_menu_kb())
+        return
+
     p = parse_portfolio_set(text)
     if p:
         u["stated_portfolio_usdt"] = p

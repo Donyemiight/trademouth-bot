@@ -424,7 +424,8 @@ def bitget_request(method, path, params=None, body=None):
 def place_spot_order(symbol, side, quote_usdt):
     body = {
         "symbol": symbol, "side": side.lower(), "orderType": "market",
-        "quoteOrderQty": f"{quote_usdt:.2f}", "force": "gtc",
+        "quoteOrderQty": f"{quote_usdt:.2f}",
+        "force": "FOK",  # FOK required for market orders
     }
     return bitget_request("POST", "/api/v2/spot/trade/place-order", body=body)
 

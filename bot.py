@@ -784,6 +784,24 @@ def handle_text(chat_id, user_id, text):
     u = user_state(j, user_id)
     intent = classify_intent(text)
 
+    # /debug command - show Bitget API status and last error
+    if text.strip() == "/debug":
+        if not BITGET_API_KEY:
+            tg_send(chat_id, "Bitget API not configured. Set BITGET_API_KEY env var.")
+            return
+        # Test the API
+        try:
+            ts = str(int(time.time() * 1000))
+            test_path = "/api/v2/spot/account/info"
+            prehash = ts + "GET" + test_path
+            sign = base64.b64encode(hmac.new(BITGET_SECRET.encode(), prehash.encode(), hashlib.sha256).digest()).decode()
+            headers = {"ACCESS-KEY": BITGET_API_KEY, "ACCESS-SIGN": sign, "ACCESS-TIMESTAMP": ts, "ACCESS-PASSPHRASE": BITGET_PASSPHRASE, "Content-Type": "application/json"}
+            r = requests.get(f"https://api.bitget.com{test_path}", headers=headers, timeout=15)
+            tg_send(chat_id, f"Bitget test API:\nStatus: {r.status_code}\nResponse: {r.text[:500]}")
+        except Exception as e:
+            tg_send(chat_id, f"Bitget API error: {e}")
+        return
+
     # FAST-PATH: /buy command - immediate trade, bypasses LLM
     if text.startswith("/buy"):
         if not BITGET_API_KEY:
@@ -806,11 +824,13 @@ def handle_text(chat_id, user_id, text):
             return
         result = place_spot_order(f"{asset}USDT", "buy", amount)
         log.info(f"Bitget place-order response for {asset}: {result}")
-        if "err" in result:
-            tg_send(chat_id, f"Bitget rejected: {str(result['err'])[:200]}")
+        # Show FULL debug info to user
+        if "err" in result or (result.get("code") and result.get("code") != "00000"):
+            err_msg = result.get("err") or result.get("msg") or "Unknown"
+            tg_send(chat_id, f"❌ *Bitget error:* {err_msg}\n\n_Full response: {str(result)[:400]}_")
             return
         data = result.get("data") or {}
-        oid = data.get("orderId") or data.get("clientOid") or "n/a"
+        oid = data.get("orderId") or data.get("clientOid") or result.get("orderId") or "n/a"
         # Log to journal
         trade = {
             "ts": datetime.utcnow().isoformat() + "Z",
@@ -822,7 +842,7 @@ def handle_text(chat_id, user_id, text):
         u["trades"].append(trade)
         save_journal(j)
         # Show full response for debugging
-        debug_info = f"\n\n_Debug: {str(data)[:200]}_" if oid == "n/a" else ""
+        debug_info = f"\n\n_Debug: orderId={data.get('orderId')}, clientOid={data.get('clientOid')}_" if oid == "n/a" else ""
         tg_send(chat_id,
             f"✅ *Executed.* Order ID: `{oid}`\n\n"
             f"• Asset: {asset} buy\n"

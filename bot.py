@@ -797,10 +797,12 @@ def handle_text(chat_id, user_id, text):
             tg_send(chat_id, f"Couldn't get price for {asset}: {snap.get('err')}. Order NOT placed.")
             return
         result = place_spot_order(f"{asset}USDT", "buy", amount)
+        log.info(f"Bitget place-order response for {asset}: {result}")
         if "err" in result:
             tg_send(chat_id, f"Bitget rejected: {str(result['err'])[:200]}")
             return
-        oid = (result.get("data") or {}).get("orderId") or "n/a"
+        data = result.get("data") or {}
+        oid = data.get("orderId") or data.get("clientOid") or "n/a"
         # Log to journal
         trade = {
             "ts": datetime.utcnow().isoformat() + "Z",
@@ -811,11 +813,14 @@ def handle_text(chat_id, user_id, text):
         }
         u["trades"].append(trade)
         save_journal(j)
+        # Show full response for debugging
+        debug_info = f"\n\n_Debug: {str(data)[:200]}_" if oid == "n/a" else ""
         tg_send(chat_id,
             f"✅ *Executed.* Order ID: `{oid}`\n\n"
             f"• Asset: {asset} buy\n"
             f"• Size: {amount} USDT\n"
-            f"• Entry: {snap['price']}\n\n"
+            f"• Entry: {snap['price']}\n"
+            f"• Status: data={list(data.keys()) if data else 'empty'}{debug_info}\n\n"
             f"_View on Bitget:_ https://www.bitget.com/spot/{asset}USDT\n\n"
             f"View all trades: /journal",
             reply_markup=main_menu_kb())

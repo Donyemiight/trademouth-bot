@@ -405,12 +405,20 @@ def bitget_request(method, path, params=None, body=None):
         "Content-Type": "application/json",
     }
     url = base + path + qs
-    if method.upper() == "GET":
-        r = requests.get(url, headers=headers, timeout=15)
-    else:
-        r = requests.post(url, headers=headers, data=body_str, timeout=15)
-    try: return r.json()
-    except Exception: return {"err": r.text[:200]}
+    try:
+        if method.upper() == "GET":
+            r = requests.get(url, headers=headers, timeout=15)
+        else:
+            r = requests.post(url, headers=headers, data=body_str, timeout=15)
+        # Log full response for debugging
+        log.info(f"Bitget {method} {path} -> {r.status_code}: {r.text[:500]}")
+        try:
+            return r.json()
+        except Exception:
+            return {"err": f"non-json: {r.text[:200]}"}
+    except Exception as e:
+        log.warning(f"Bitget request error: {e}")
+        return {"err": str(e)[:200]}
 
 
 def place_spot_order(symbol, side, quote_usdt):

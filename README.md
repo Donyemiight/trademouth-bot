@@ -213,5 +213,5 @@ MIT — see [LICENSE](LICENSE)
 
 **Donyemiight** (Don Yemight)
 - GitHub: [@Donyemiight](https://github.com/Donyemiight)
-- Telegram: @temiolamid42
+- Telegram: @donyemiight
 - Built with 🔥 for the Bitget AI Hackathon 2026

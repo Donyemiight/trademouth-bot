@@ -421,7 +421,28 @@ def bitget_request(method, path, params=None, body=None):
         return {"err": str(e)[:200]}
 
 
+# Demo mode flag: when true, simulate trades instead of calling Bitget
+# Useful for hackathon demos when live API has restrictions
+DEMO_MODE = os.environ.get("DEMO_MODE", "0") == "1"
+DEMO_COUNTER = {"n": 10000}  # Counter for fake order IDs
+
+
 def place_spot_order(symbol, side, quote_usdt):
+    if DEMO_MODE:
+        # Simulate a successful order for demo purposes
+        DEMO_COUNTER["n"] += 1
+        return {
+            "code": "00000",
+            "msg": "success",
+            "data": {
+                "orderId": f"DEMO_{DEMO_COUNTER['n']}",
+                "clientOid": f"demo_client_{DEMO_COUNTER['n']}",
+                "symbol": symbol,
+                "side": side,
+                "orderType": "market",
+                "quoteOrderQty": str(quote_usdt),
+            },
+        }
     body = {
         "symbol": symbol, "side": side.lower(), "orderType": "market",
         "quoteOrderQty": f"{quote_usdt:.2f}",

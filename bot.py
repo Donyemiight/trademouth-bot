@@ -886,14 +886,27 @@ def handle_text(chat_id, user_id, text):
     # Detect suggested trade size in the reply (try multiple patterns)
     rl = reply.lower()
     size_match = (re.search(r"(?:size|position)[^\d]*(\d+(?:\.\d+)?)\s*%", rl) or
-                  re.search(r"(\d+(?:\.\d+)?)\s*%\s*(?:size|position|of\s+portfolio)", rl))
-    if size_match and u.get("stated_portfolio_usdt") and any(w in text.lower() for w in ("buy","long","thinking about buying","i want to buy","purchase","acquire")):
+                  re.search(r"(\d+(?:\.\d+)?)\s*%\s*(?:size|position|of\s+portfolio)", rl) or
+                  re.search(r"\$(\d+(?:\.\d+)?)\s*(?:usdt|usd|position|size)?", rl))
+    wants_trade = any(w in text.lower() for w in ("buy","long","thinking about buying","i want to buy","purchase","acquire"))
+    if size_match and u.get("stated_portfolio_usdt") and wants_trade:
         try:
-            pct = min(float(size_match.group(1)), u["max_position_pct"])
+            # Extract size in USDT (if $X format) or in % of portfolio
+            raw_size = float(size_match.group(1))
+            if "$" in size_match.group(0) or "usdt" in size_match.group(0).lower() or "usd" in size_match.group(0).lower():
+                # Direct USDT amount
+                size_usdt = raw_size
+            else:
+                # Percentage of portfolio
+                pct = min(raw_size, u["max_position_pct"])
+                size_usdt = u["stated_portfolio_usdt"] * pct / 100
+            # ENFORCE Bitget minimum ($1 USDT)
+            if size_usdt < 1.0:
+                size_usdt = 1.0
             u["pending_trade"] = {
                 "asset": asset,
                 "direction": "buy" if any(w in text.lower() for w in ("buy", "long", "thinking about buying", "i want to buy")) else "sell",
-                "size_usdt": u["stated_portfolio_usdt"] * pct / 100,
+                "size_usdt": size_usdt,
                 "stop_pct": 3.0, "target_pct": 5.0,
                 "reasoning": reply[:500], "user_stated_thesis": text,
             }

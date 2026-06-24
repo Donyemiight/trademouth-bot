@@ -423,7 +423,7 @@ def bitget_request(method, path, params=None, body=None):
 
 # Demo mode flag: when true, simulate trades instead of calling Bitget
 # Useful for hackathon demos when live API has restrictions
-DEMO_MODE = os.environ.get("DEMO_MODE", "0") == "1"
+DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"
 DEMO_COUNTER = {"n": 10000}  # Counter for fake order IDs
 
 

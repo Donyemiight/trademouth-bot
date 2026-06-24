@@ -480,8 +480,10 @@ def place_spot_order(symbol, side, quote_usdt, user_id=None):
     if not snap.get("ok") or not snap.get("price"):
         return {"err": f"Cannot fetch price for {symbol} to size order"}
     price = float(snap["price"])
-    # Round size up to 4 decimals, ensure quote value >= $1.20 to clear min
-    base_size = max(quote_usdt / price, 1.20 / price)
+    # Round size up to 4 decimals, ensure quote value strictly > $1 to clear min
+    base_size = max(quote_usdt / price, 1.50 / price)
+    # Add 1% buffer to be safe from float rounding
+    base_size = base_size * 1.01
     body = {
         "symbol": symbol, "side": side.lower(), "orderType": "market",
         "size": f"{base_size:.4f}",

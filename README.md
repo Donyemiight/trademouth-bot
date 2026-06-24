@@ -27,7 +27,7 @@ TradeMouth does.
 
 ## 🎬 Demo
 
-**Watch it work:** [YouTube link coming soon]
+**Watch it work:** https://youtu.be/UcZR5iTlW1A
 
 Try the bot: `@TradeMouthBot` on Telegram
 

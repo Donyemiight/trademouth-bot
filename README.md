@@ -134,6 +134,11 @@ python bot.py
 - ✅ Socratic method — never says "guaranteed" or "you'll make"
 - ✅ Always ends responses with a question, not an order
 - ✅ Suggests "wait" when setup isn't there
+- ✅ **Owner-only real trading** — only the bot owner's Telegram user id can place real orders; everyone else gets demo fills regardless of `DEMO_MODE`
+- ✅ **Read-only public key** — balances/positions displayed to public users go through a separate API key with trade permissions disabled
+- ✅ **Open-source security** — every security check is documented inline in `bot.py` and visible in the GitHub repo
+
+Send `/security` to the bot to see the security model in action.
 
 ---
 

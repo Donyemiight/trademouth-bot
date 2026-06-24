@@ -253,6 +253,28 @@ def get_market_snapshot(asset):
     sym = f"{asset_u}USDT"
     out = {"asset": asset_u, "ok": False}
 
+    # Primary: Bitget public ticker (authoritative for Bitget orders)
+    try:
+        r = requests.get("https://api.bitget.com/api/v2/spot/market/tickers",
+                         params={"symbol": sym}, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("code") == "00000" and data.get("data"):
+                ticker = data["data"][0]
+                price = float(ticker["lastPr"])
+                out.update({
+                    "ok": True, "price": price,
+                    "high_24h": float(ticker.get("high24h", 0)),
+                    "low_24h": float(ticker.get("low24h", 0)),
+                    "change_pct_24h": float(ticker.get("change24h", 0)) * 100,
+                    "rsi_1h": -1, "ema_20_1h": 0,
+                    "vol_ratio_last_vs_avg": 0,
+                    "source": "bitget",
+                })
+                return out
+    except Exception as e:
+        log.info(f"bitget ticker failed for {sym}: {e}")
+
     endpoints = [
         ("https://api.binance.com/api/v3/klines", "binance"),
         ("https://api1.binance.com/api/v3/klines", "binance1"),

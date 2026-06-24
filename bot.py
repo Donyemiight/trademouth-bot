@@ -479,6 +479,14 @@ def place_spot_order(symbol, side, quote_usdt, user_id=None):
         "quoteOrderQty": f"{quote_usdt:.2f}",
         "force": "FOK",  # FOK required for market orders
     }
+    # Compute base-asset size from current price for redundancy
+    try:
+        snap = get_market_snapshot(symbol.replace("USDT", ""))
+        if snap.get("ok") and snap.get("price"):
+            base_size = quote_usdt / float(snap["price"])
+            body["size"] = f"{base_size:.4f}"
+    except Exception:
+        pass
     return bitget_request("POST", "/api/v2/spot/trade/place-order", body=body)
 
 

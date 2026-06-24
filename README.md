@@ -27,7 +27,7 @@ TradeMouth does.
 
 ## 🎬 Demo
 
-**Watch it work:** https://youtu.be/UcZR5iTlW1A
+**Watch it work:** https://youtube.com/shorts/JnTMlclFo_4
 
 Try the bot: `@TradeMouthBot` on Telegram
 
@@ -198,7 +198,7 @@ trademouth-bot/
 
 - **Track:** 1 — Trading Agent
 - **Organizer:** [@Bitget_AI](https://x.com/Bitget_AI) + partners
-- **Demo:** [https://youtu.be/UcZR5iTlW1A](https://youtu.be/UcZR5iTlW1A)
+- **Demo:** [https://youtube.com/shorts/JnTMlclFo_4](https://youtube.com/shorts/JnTMlclFo_4)
 - **Live bot:** @TradeMouthBot
 - **Submission form:** [https://forms.gle/CEGB6fRtuobD3bCj8](https://forms.gle/CEGB6fRtuobD3bCj8)
 

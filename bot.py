@@ -511,7 +511,6 @@ def place_spot_order(symbol, side, quote_usdt, user_id=None):
         "force": "IOC",  # IOC more permissive than FOK for small orders
     }
     log.info(f"Bitget place-order: symbol={symbol} side={side} quote={quote_usdt} price={price} size={base_size:.4f} quote_val={base_size*price:.2f}")
-    }
     return bitget_request("POST", "/api/v2/spot/trade/place-order", body=body)
 
 

@@ -502,14 +502,15 @@ def place_spot_order(symbol, side, quote_usdt, user_id=None):
     if not snap.get("ok") or not snap.get("price"):
         return {"err": f"Cannot fetch price for {symbol} to size order"}
     price = float(snap["price"])
-    # Round size up to 4 decimals, ensure quote value strictly > $1 to clear min
-    base_size = max(quote_usdt / price, 1.50 / price)
-    # Add 1% buffer to be safe from float rounding
-    base_size = base_size * 1.01
+    # Use generous min: $2.00 USDT to comfortably clear Bitget's $1 minimum
+    # after rounding errors. With 1% buffer.
+    base_size = max(quote_usdt / price, 2.00 / price) * 1.01
     body = {
         "symbol": symbol, "side": side.lower(), "orderType": "market",
         "size": f"{base_size:.4f}",
-        "force": "FOK",  # FOK required for market orders
+        "force": "IOC",  # IOC more permissive than FOK for small orders
+    }
+    log.info(f"Bitget place-order: symbol={symbol} side={side} quote={quote_usdt} price={price} size={base_size:.4f} quote_val={base_size*price:.2f}")
     }
     return bitget_request("POST", "/api/v2/spot/trade/place-order", body=body)
 

@@ -50,6 +50,17 @@ PUBLIC_BITGET_PASSPHRASE = os.environ.get("PUBLIC_BITGET_PASSPHRASE", "")
 # of the account owner. Only this user can place REAL orders.
 # Anyone else gets demo-mode behaviour even if DEMO_MODE=0.
 OWNER_USER_ID = os.environ.get("OWNER_USER_ID", "").strip()
+# Render Secret Files fallback: if OWNER_USER_ID is empty, try reading from
+# /etc/secrets/OWNER_USER_ID (where Render mounts Secret Files).
+if not OWNER_USER_ID:
+    for secret_path in ("/etc/secrets/OWNER_USER_ID", "/etc/secrets/owner_user_id", "/etc/secrets/owner"):
+        try:
+            with open(secret_path) as _f:
+                OWNER_USER_ID = _f.read().strip()
+                log.info(f"Loaded OWNER_USER_ID from secret file {secret_path}")
+                break
+        except (FileNotFoundError, OSError):
+            continue
 
 # Optional: seed journal on first boot with realistic demo trades
 SEED_JOURNAL = os.environ.get("SEED_JOURNAL", "1") == "1"

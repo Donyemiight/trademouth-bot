@@ -197,8 +197,8 @@ trademouth-bot/
 ## 🎯 Hackathon submission
 
 - **Track:** 1 — Trading Agent
-- **Organizer:** Bitget + partners
-- **Demo:** [YouTube link]
+- **Organizer:** [@Bitget_AI](https://x.com/Bitget_AI) + partners
+- **Demo:** [https://youtu.be/UcZR5iTlW1A](https://youtu.be/UcZR5iTlW1A)
 - **Live bot:** @TradeMouthBot
 - **Submission form:** [https://forms.gle/CEGB6fRtuobD3bCj8](https://forms.gle/CEGB6fRtuobD3bCj8)
 

@@ -622,7 +622,7 @@ def handle_about(chat_id):
         "• Binance public API for live market data\n"
         "• Bitget HMAC-signed REST API for execution\n"
         "• Python 3 stdlib only (no heavy libraries)\n\n"
-        "*Hackathon:* Bitget AI × Crypto Trading 2026 — Track 1 (Trading Agent)")
+        "*Hackathon:* Bitget AI × Crypto Trading 2026 — Track 1 (Trading Agent) · @Bitget_AI")
 
 
 # ---------- Security model ----------

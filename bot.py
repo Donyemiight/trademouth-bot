@@ -474,11 +474,17 @@ def place_spot_order(symbol, side, quote_usdt, user_id=None):
                 "simulated": True,
             },
         }
-    # Round up to ensure we clear Bitget's 1 USDT minimum
-    quote_usdt_rounded = max(quote_usdt, 1.01)
+    # Bitget v2 spot market orders REQUIRE base-asset `size` field.
+    # Fetch current price to convert quote (USDT) amount to base size.
+    snap = get_market_snapshot(symbol.replace("USDT", ""))
+    if not snap.get("ok") or not snap.get("price"):
+        return {"err": f"Cannot fetch price for {symbol} to size order"}
+    price = float(snap["price"])
+    # Round size up to 4 decimals, ensure quote value >= $1.05 to clear min
+    base_size = max(quote_usdt / price, 1.05 / price)
     body = {
         "symbol": symbol, "side": side.lower(), "orderType": "market",
-        "quoteOrderQty": f"{quote_usdt_rounded:.2f}",
+        "size": f"{base_size:.4f}",
         "force": "FOK",  # FOK required for market orders
     }
     return bitget_request("POST", "/api/v2/spot/trade/place-order", body=body)

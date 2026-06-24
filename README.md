@@ -1,5 +1,7 @@
 # TradeMouth 🧠
 
+![TradeMouth — Socratic AI Trading Mentor](assets/hero_image.png)
+
 > **A Socratic AI trading mentor that lives in your Telegram chat.**
 
 Built for the **Bitget AI × Crypto Trading Hackathon 2026** — Track 1: Trading Agent.

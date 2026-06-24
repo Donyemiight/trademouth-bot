@@ -57,7 +57,7 @@ if not OWNER_USER_ID:
         try:
             with open(secret_path) as _f:
                 OWNER_USER_ID = _f.read().strip()
-                log.info(f"Loaded OWNER_USER_ID from secret file {secret_path}")
+                print(f"[boot] Loaded OWNER_USER_ID from secret file {secret_path}")
                 break
         except (FileNotFoundError, OSError):
             continue

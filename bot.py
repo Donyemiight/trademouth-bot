@@ -565,7 +565,8 @@ def handle_start(chat_id):
         "• `set my portfolio to 5000` — I'll size positions\n"
         "• `/strategies` — 10 starter strategies\n"
         "• `/backtest rsi<30 on BTC 30d` — historical sim\n"
-        "• `/stats` — your win rate + P&L\n\n"
+        "• `/stats` — your win rate + P&L\n"
+        "• `/log` — export trade log in form-ready CSV\n\n"
         "*What I will NEVER do:*\n"
         "❌ Promise profits or guaranteed returns\n"
         "❌ Recommend leverage (spot only)\n"
@@ -714,6 +715,42 @@ def handle_journal(chat_id, user_id):
     if u.get("style_notes"):
         lines.append(f"\n*Your style:* {u['style_notes'][-1]}")
     tg_send(chat_id, "\n".join(lines), reply_markup=main_menu_kb())
+
+
+def handle_log(chat_id, user_id):
+    """Export trade journal in Bitget-hackathon-form-friendly CSV format.
+    Format: timestamp | pair | side | price | size | balance
+    """
+    j = load_journal()
+    u = user_state(j, user_id)
+    trades = u.get("trades", [])
+    if not trades:
+        tg_send(chat_id, "_No trades yet. Make a trade and try /log again._")
+        return
+    lines = ["*Trade log (form-ready)*\n", "```", "timestamp | pair | side | price | size_usdt | balance"]
+    # Get latest known balance (rough — pulled from journal entry if present)
+    last_bal = "n/a"
+    for t in trades:
+        bal = t.get("balance_after_usdt")
+        if bal is not None:
+            last_bal = f"${bal:.2f}"
+    for t in trades:
+        ts = t.get("ts", "")[:19].replace("T", " ")
+        pair = f"{t.get('asset', '?')}/USDT"
+        side = t.get("direction", "?")
+        price = t.get("price_at_entry") or t.get("entry_price") or 0
+        if not price:
+            price_str = "n/a"
+        else:
+            price_str = f"${price:.2f}"
+        size = t.get("size_usdt", 0)
+        size_str = f"${size:.2f}"
+        bal = t.get("balance_after_usdt")
+        bal_str = f"${bal:.2f}" if bal is not None else last_bal
+        lines.append(f"{ts} | {pair} | {side} | {price_str} | {size_str} | {bal_str}")
+    lines.append("```")
+    lines.append(f"\n_Total: {len(trades)} trades. Copy the table above._")
+    tg_send(chat_id, "\n".join(lines))
 
 
 def handle_strategies(chat_id):
@@ -1150,6 +1187,7 @@ def handle_update(update):
                 is_owner = str(user_id) == OWNER_USER_ID and OWNER_USER_ID
                 tg_send(chat_id, f"{'👑 OWNER (real trading enabled)' if is_owner else '👤 guest (demo mode)'}"); return
             if text == "/journal": handle_journal(chat_id, user_id); return
+            if text == "/log": handle_log(chat_id, user_id); return
             if text == "/strategies": handle_strategies(chat_id); return
             if text == "/balance": handle_balance(chat_id); return
             if text == "/positions": handle_positions(chat_id, user_id); return
